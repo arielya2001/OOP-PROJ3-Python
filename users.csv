@@ -1,0 +1,2 @@
+username,password_hash
+john_doe,pbkdf2:sha256:260000$xHhj25aVbOrUCWvc$108aed73218bdf72c131e08d2fb5e8fadcb1893355799a74a8f898e2677c135c
