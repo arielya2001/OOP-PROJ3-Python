@@ -1,4 +1,5 @@
-from file_utils import load_books, save_books
+from file_utils import load_books, save_books, load_data, find_book_by_title, save_data
+from collections import Counter
 
 import csv
 
@@ -13,6 +14,64 @@ def load_popular_books_with_waiting_list(filename="popular_books.csv"):
             return books
     except FileNotFoundError:
         return []  # Return an empty list if the file doesn't exist
+def add_to_waiting_list(popular_filename, title, username):
+    books = load_books("books.csv")
+    for book in books:
+        if book.title.strip().lower() == title.strip().lower():
+            if book.available_copies > 0:
+                print(f"Copies are available for '{title}'. No need to join the waiting list.")
+                return
+            # Increment request count
+            book.request_count += 1
+            save_books("books.csv", books)  # Save updated request counts
+            break
+
+    popular_books = load_popular_books_with_waiting_list(popular_filename)
+    for book in popular_books:
+        if book["title"].strip().lower() == title.strip().lower():
+            if username not in book["waiting_list"]:
+                book["waiting_list"].append(username)
+                save_popular_books_with_waiting_list(popular_books, popular_filename)
+                print(f"User '{username}' added to the waiting list for '{title}'.")
+                return
+            else:
+                print(f"User '{username}' is already on the waiting list for '{title}'.")
+                return
+    print(f"Book '{title}' not found in the popular books list.")
+def update_available_books(book_filename, available_books_filename):
+    books = load_books(book_filename)
+    available_books = [book for book in books if book.available_copies > 0]
+    with open(available_books_filename, mode="w", newline="", encoding="utf-8") as file:
+        fieldnames = ["title", "author", "genre", "year", "available_copies"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for book in available_books:
+            writer.writerow({
+                "title": book.title,
+                "author": book.author,
+                "genre": book.genre,
+                "year": book.year,
+                "available_copies": book.available_copies
+            })
+
+def update_loaned_books(book_filename, loaned_books_filename):
+    books = load_books(book_filename)
+    loaned_books = [book for book in books if book.available_copies < book.copies]
+    with open(loaned_books_filename, mode="w", newline="", encoding="utf-8") as file:
+        fieldnames = ["title", "author", "genre", "year", "loaned_copies"]
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for book in loaned_books:
+            loaned_copies = book.copies - book.available_copies
+            writer.writerow({
+                "title": book.title,
+                "author": book.author,
+                "genre": book.genre,
+                "year": book.year,
+                "loaned_copies": loaned_copies
+            })
+
+
 
 
 def save_popular_books_with_waiting_list(popular_books, filename="popular_books.csv"):
@@ -168,6 +227,11 @@ def borrow_popular_book(book_filename, popular_filename, title, username):
     print(f"Book '{title}' not found in the library.")
 
 
+def update_available_and_loaned_books(books):
+    available_books = [book.to_dict() for book in books if not book.is_loaned]
+    loaned_books = [book.to_dict() for book in books if book.is_loaned]
+    save_data("available_books.csv", available_books, fieldnames=["title", "author", "copies", "genre", "year"])
+    save_data("loaned_books.csv", loaned_books, fieldnames=["title", "author", "copies", "genre", "year"])
 
 
 def borrow_book(book_filename, popular_filename, title, username):
@@ -176,20 +240,73 @@ def borrow_book(book_filename, popular_filename, title, username):
     If the book is popular and unavailable, adds the user to its waiting list.
     """
     books = load_books(book_filename)
-    popular_books = load_popular_books_with_waiting_list(popular_filename)
 
     for book in books:
-        if book.title.lower() == title.lower():
-            if title in popular_books:
-                print(f"'{title}' is a popular book!")
+        if book.title.strip().lower() == title.strip().lower():
             if book.borrow_book(username):
                 print(f"Book '{title}' borrowed successfully by {username}.")
-                book.copies -=1
             else:
                 print(f"No copies available. {username} added to the waiting list for '{title}'.")
             save_books(book_filename, books)  # Save updated book data
+            update_available_and_loaned_books(books)  # Update available and loaned books
             return
     print(f"Book '{title}' not found.")
+
+def return_book(book_filename, available_filename, loaned_filename, title, username):
+    """
+    Return a book, updating available_books.csv and loaned_books.csv.
+    """
+    available_books = load_data(available_filename)
+    loaned_books = load_data(loaned_filename)
+    all_books = load_data(book_filename)
+
+    # Find the book in loaned_books
+    book = find_book_by_title(loaned_books, title)
+    if book and book.get("borrowed_by") == username:
+        # Remove from loaned_books and add to available_books
+        loaned_books.remove(book)
+        del book["borrowed_by"]
+        available_books.append(book)
+
+        # Update is_loaned if necessary
+        book_in_all_books = find_book_by_title(all_books, title)
+        if book_in_all_books:
+            book_in_all_books["is_loaned"] = "No"
+
+        save_data(available_filename, available_books, fieldnames=list(available_books[0].keys()))
+        save_data(loaned_filename, loaned_books, fieldnames=list(loaned_books[0].keys()))
+        print(f"Book '{title}' returned successfully by {username}.")
+    else:
+        print(f"Book '{title}' not found in the loaned books or not borrowed by {username}.")
+
+def update_popularity(popular_filename, title):
+    """
+    Update the popularity count for a book in the popular_books.csv file.
+    """
+    popular_books = load_data(popular_filename)
+    book = find_book_by_title(popular_books, title)
+
+    if book:
+        book["popularity_count"] = str(int(book["popularity_count"]) + 1)
+    else:
+        popular_books.append({"title": title, "popularity_count": "1"})
+
+    save_data(popular_filename, popular_books, fieldnames=["title", "popularity_count"])
+
+def get_top_10_popular_books(popular_filename):
+    """
+    Returns the top 10 most popular books based on their waiting list size.
+    """
+    popular_books = load_popular_books_with_waiting_list(popular_filename)
+    # Calculate popularity score dynamically as the length of the waiting list
+    popularity_scores = [
+        {"title": book["title"], "popularity_score": len(book["waiting_list"])}
+        for book in popular_books
+    ]
+    # Sort by popularity score in descending order
+    popularity_scores.sort(key=lambda x: x["popularity_score"], reverse=True)
+    # Return the top 10 most popular books
+    return popularity_scores[:10]
 
 
 def show_popular_books(popular_filename):

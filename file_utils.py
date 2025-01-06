@@ -37,10 +37,23 @@ def load_books(filename):
 
 def save_books(filename, books):
     with open(filename, mode='w', newline='', encoding='utf-8') as file:
-        fieldnames = ["title", "author", "year", "genre", "copies", "available_copies", "waiting_list", "is_popular"]
+        fieldnames = ["title", "author", "is_loaned", "copies", "genre", "year"]  # Match books.csv
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         for book in books:
-            writer.writerow(book.to_dict())
+            writer.writerow({
+                "title": book.title,
+                "author": book.author,
+                "is_loaned": book.is_loaned,
+                "copies": book.copies,
+                "genre": book.genre,
+                "year": book.year
+            })
+
+def find_book_by_title(data, title):
+    for book in data:
+        if book["title"].strip().lower() == title.strip().lower():
+            return book
+    return None
 
 
